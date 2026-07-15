@@ -15,6 +15,7 @@ fires actions at the scheduled times — it does not need network access
 in between windows.
 """
 
+import logging
 import subprocess
 import threading
 import time
@@ -22,6 +23,19 @@ from datetime import datetime
 
 import obsws_python as obs
 import schedule
+
+# ---- LOGGING --------------------------------------------------------------
+# Writes every event to pipeline.log (persists across restarts) AND prints
+# to the terminal, so you can check progress without being at the PC.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("pipeline.log", encoding="utf-8"),
+        logging.StreamHandler(),
+    ],
+)
+log = logging.getLogger(__name__)
 
 # ---- CONFIG -------------------------------------------------------------
 OBS_HOST = "localhost"
@@ -50,9 +64,9 @@ def start_block(label):
         cl = get_client()
         cl.start_record()
         cl.start_stream()
-        print(f"[{datetime.now()}] Started recording + streaming for block '{label}'")
+        log.info(f"Started recording + streaming for block '{label}'")
     except Exception as e:
-        print(f"[{datetime.now()}] ERROR starting block '{label}': {e}")
+        log.error(f"ERROR starting block '{label}': {e}")
 
 
 def stop_block(label):
@@ -61,23 +75,23 @@ def stop_block(label):
         record_status = cl.stop_record()
         cl.stop_stream()
         output_path = getattr(record_status, "output_path", None)
-        print(f"[{datetime.now()}] Stopped block '{label}'. File: {output_path}")
+        log.info(f"Stopped block '{label}'. File: {output_path}")
 
         if output_path:
             threading.Thread(
                 target=run_processing, args=(output_path, label), daemon=True
             ).start()
         else:
-            print(
-                f"[{datetime.now()}] WARNING: no output path returned, "
-                f"check the OBS recording folder manually for block '{label}'"
+            log.warning(
+                f"No output path returned, check the OBS recording folder "
+                f"manually for block '{label}'"
             )
     except Exception as e:
-        print(f"[{datetime.now()}] ERROR stopping block '{label}': {e}")
+        log.error(f"ERROR stopping block '{label}': {e}")
 
 
 def run_processing(video_path, label):
-    print(f"[{datetime.now()}] Processing '{video_path}' for block '{label}'...")
+    log.info(f"Processing '{video_path}' for block '{label}'...")
     result = subprocess.run(
         [
             "python", PROCESS_SCRIPT,
@@ -88,9 +102,9 @@ def run_processing(video_path, label):
         capture_output=True, text=True,
     )
     if result.returncode == 0:
-        print(f"[{datetime.now()}] Processing finished for '{label}'.")
+        log.info(f"Processing finished for '{label}'.")
     else:
-        print(f"[{datetime.now()}] Processing FAILED for '{label}':\n{result.stderr}")
+        log.error(f"Processing FAILED for '{label}':\n{result.stderr}")
 
 
 def build_schedule():
@@ -102,7 +116,7 @@ def build_schedule():
 
 if __name__ == "__main__":
     build_schedule()
-    print("Scheduler running. Waiting for next observation window...")
+    log.info("Scheduler running. Waiting for next observation window...")
     while True:
         schedule.run_pending()
         time.sleep(5)
